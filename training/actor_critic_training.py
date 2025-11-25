@@ -1,5 +1,6 @@
 """
-Actor-Critic (A2C) Training Script for Ubuntu RL Environment
+A2C Hyperparameter Search Script with Visualization for Ubuntu RL Environment
+Runs 10 different configurations, saves results, and generates analysis plots
 """
 import sys
 import os
@@ -9,116 +10,347 @@ from stable_baselines3 import A2C
 from stable_baselines3.common.callbacks import BaseCallback
 from environment.custom_env import UbuntuEnv
 import numpy as np
+import pandas as pd
+from datetime import datetime
+import matplotlib.pyplot as plt
+import seaborn as sns
+
+# Utility to ensure hashable types for results
+def safe_value(val):
+    """Convert numpy types to native Python types"""
+    if isinstance(val, np.ndarray):
+        if val.size == 1:
+            return val.item()
+        else:
+            return val.tolist()
+    elif isinstance(val, (np.integer, np.int32, np.int64)):
+        return int(val)
+    elif isinstance(val, (np.floating, np.float32, np.float64)):
+        return float(val)
+    elif isinstance(val, tuple):
+        return tuple(safe_value(x) for x in val)
+    elif isinstance(val, list):
+        return [safe_value(x) for x in val]
+    elif isinstance(val, dict):
+        return {safe_value(k): safe_value(v) for k, v in val.items()}
+    return val
 
 
-class ProgressCallback(BaseCallback):
-    """Callback for tracking training progress with early stopping"""
+class DetailedProgressCallback(BaseCallback):
+    """Callback for tracking detailed training metrics"""
     
-    def __init__(self, check_freq=1000, patience=20, min_improvement=10):
+    def __init__(self, check_freq=1000):
         super().__init__()
         self.check_freq = check_freq
         self.episode_rewards = []
         self.episode_lengths = []
-        self.patience = patience
-        self.min_improvement = min_improvement
-        self.best_reward = float('-inf')
-        self.patience_counter = 0
+        self.timesteps = []
+        self.losses = []
+        self.policy_losses = []
+        self.value_losses = []
+        self._seen_episodes = set()  # Track which episodes we've already logged
         
     def _on_step(self):
-        if len(self.model.ep_info_buffer) > 0 and len(self.model.ep_info_buffer) > len(self.episode_rewards):
+        # Track episode rewards - FIX: Properly handle ep_info_buffer
+        if len(self.model.ep_info_buffer) > 0:
             for info in self.model.ep_info_buffer:
+                # Create a unique identifier for this episode
+                # Use timestep + reward as identifier (not perfect but works)
                 if 'r' in info and 'l' in info:
-                    if len(self.episode_rewards) == 0 or info['r'] != self.episode_rewards[-1]:
-                        self.episode_rewards.append(info['r'])
-                        self.episode_lengths.append(info['l'])
+                    episode_id = (self.num_timesteps, float(info['r']))
+                    
+                    if episode_id not in self._seen_episodes:
+                        self._seen_episodes.add(episode_id)
+                        # Convert to native Python types immediately
+                        reward = float(info['r'])
+                        length = int(info['l'])
+                        self.episode_rewards.append(reward)
+                        self.episode_lengths.append(length)
+                        self.timesteps.append(int(self.num_timesteps))
+        
+        # Track training metrics periodically
+        if self.n_calls % 100 == 0:
+            try:
+                # Get latest losses if available
+                if hasattr(self.model, 'logger') and self.model.logger is not None:
+                    policy_loss = self.model.logger.name_to_value.get('train/policy_loss', None)
+                    value_loss = self.model.logger.name_to_value.get('train/value_loss', None)
+                    
+                    if policy_loss is not None:
+                        self.policy_losses.append(float(policy_loss))
+                    if value_loss is not None:
+                        self.value_losses.append(float(value_loss))
+            except:
+                pass
         
         if self.n_calls % self.check_freq == 0 and len(self.episode_rewards) > 0:
-            avg_reward = np.mean(self.episode_rewards[-10:])
-            print(f"{self.n_calls:7d} steps | {len(self.episode_rewards)} eps | Reward: {avg_reward:+.2f}")
-            
-            if avg_reward > self.best_reward + self.min_improvement:
-                self.best_reward = avg_reward
-                self.patience_counter = 0
-            else:
-                self.patience_counter += 1
-                
-            if self.patience_counter >= self.patience:
-                print(f"Early stopping: No improvement for {self.patience} checks (best: {self.best_reward:.2f})")
-                return False
+            avg_reward = float(np.mean(self.episode_rewards[-10:]))
+            print(f"  {self.n_calls:7d} steps | {len(self.episode_rewards):3d} eps | Reward: {avg_reward:+7.2f}")
         
         return True
 
 
-def train_a2c(total_timesteps=200000, model_save_path="models/actor_critic/ubuntu_agent_a2c"):
-    """
-    Train A2C (Actor-Critic) agent on UPGRADED A+ Ubuntu RL environment
+def train_a2c_config(config_id, lr, gamma, n_steps, ent_coef, vf_coef, 
+                     total_timesteps=150000, save_path="models/a2c/"):
+    """Train A2C with specific hyperparameters"""
     
-    Args:
-        total_timesteps: Total training timesteps
-        model_save_path: Path to save trained model
-    """
-    print("🌍 TRAINING A2C AGENT (A+ Upgraded Environment)")
+    print(f"\n{'='*70}")
+    print(f"CONFIG {config_id}: LR={lr}, γ={gamma}, n_steps={n_steps}, ent={ent_coef}, vf={vf_coef}")
+    print('='*70)
+    
     env = UbuntuEnv(render_mode=None, vision_radius=2, enable_history=True)
-    print(f"Actions: {env.action_space} | Obs: {env.observation_space.shape}")
-    print(f"   👀 Vision: {2*env.vision_radius+1}x{2*env.vision_radius+1} grid")
-    print(f"   🧠 History: {env.history_length} steps")
-    print(f"   🎯 Diversity requirement: {env.required_diversity}/10 philosophies")
+    
     model = A2C(
         "MlpPolicy",
         env,
-        learning_rate=0.0007,
-        n_steps=5,
-        gamma=0.99,
+        learning_rate=lr,
+        n_steps=n_steps,
+        gamma=gamma,
         gae_lambda=0.95,
-        ent_coef=0.01,
-        vf_coef=0.5,           # Balanced actor-critic
+        ent_coef=ent_coef,
+        vf_coef=vf_coef,
         max_grad_norm=0.5,
         normalize_advantage=True,
         verbose=0
     )
     
-    print(f"Training {total_timesteps:,} steps...")
-    callback = ProgressCallback(check_freq=1000)
-    
-    model.learn(
-        total_timesteps=total_timesteps,
-        callback=callback,
-        progress_bar=False
-    )
-    
-    print("\n" + "-" * 70)
-    print("💾 Saving trained model...")
-    model.save(model_save_path)
-    
-    print("\n✅ Training complete!")
-    print(f"   Total episodes: {len(callback.episode_rewards)}")
-    if len(callback.episode_rewards) > 0:
-        print(f"   Final avg reward (last 20): {np.mean(callback.episode_rewards[-20:]):.2f}")
-    
-    print("\n🧪 Testing trained agent...")
+    callback = DetailedProgressCallback(check_freq=5000)
     
     try:
-        obs, _ = env.reset()
-        total_reward = 0
-        steps = 0
+        model.learn(
+            total_timesteps=total_timesteps,
+            callback=callback,
+            progress_bar=False
+        )
         
-        for _ in range(200):
+        # Calculate mean reward from last 20 episodes
+        if len(callback.episode_rewards) >= 20:
+            mean_reward = float(np.mean(callback.episode_rewards[-20:]))
+        elif len(callback.episode_rewards) > 0:
+            mean_reward = float(np.mean(callback.episode_rewards))
+        else:
+            mean_reward = -999.0
+        
+        # Test the model
+        obs, _ = env.reset()
+        test_reward = 0.0
+        for _ in range(500):
             action, _ = model.predict(obs, deterministic=True)
             obs, reward, terminated, truncated, info = env.step(action)
-            total_reward += reward
-            steps += 1
-            
+            test_reward += float(reward)
             if terminated or truncated:
                 break
         
-        print(f"   Test: {steps} steps | Reward: {total_reward:.1f} | Ubuntu Score: {env.ubuntu_score:.1f}")
+        print(f"✅ Config {config_id} Complete | Train: {mean_reward:+.2f} | Test: {test_reward:+.2f}")
+        
+        # Save model
+        model_path = f"{save_path}ubuntu_a2c_config{config_id}"
+        model.save(model_path)
+        
+        # Return results with safe values
+        return {
+            'config_id': int(config_id),
+            'learning_rate': float(lr),
+            'gamma': float(gamma),
+            'n_steps': int(n_steps),
+            'ent_coef': float(ent_coef),
+            'vf_coef': float(vf_coef),
+            'mean_reward': float(mean_reward),
+            'test_reward': float(test_reward),
+            'episodes': int(len(callback.episode_rewards)),
+            'model_path': str(model_path),
+            'episode_rewards': [float(r) for r in callback.episode_rewards],
+            'timesteps': [int(t) for t in callback.timesteps],
+            'policy_losses': [float(l) for l in callback.policy_losses],
+            'value_losses': [float(l) for l in callback.value_losses]
+        }
+        
     except Exception as e:
-        print(f"   Test failed (non-critical): {e}")
+        print(f"❌ Config {config_id} Failed: {e}")
+        import traceback
+        traceback.print_exc()
+        return {
+            'config_id': int(config_id),
+            'learning_rate': float(lr),
+            'gamma': float(gamma),
+            'n_steps': int(n_steps),
+            'ent_coef': float(ent_coef),
+            'vf_coef': float(vf_coef),
+            'mean_reward': -999.0,
+            'test_reward': -999.0,
+            'episodes': 0,
+            'model_path': None,
+            'episode_rewards': [],
+            'timesteps': [],
+            'policy_losses': [],
+            'value_losses': []
+        }
+
+
+def plot_cumulative_rewards(results, save_path="models/a2c/plots/"):
+    """Plot cumulative rewards over episodes for all configurations"""
     
-    print(f"   Saved: {model_save_path}.zip")
+    os.makedirs(save_path, exist_ok=True)
     
-    return model, callback
+    # Filter out failed configs
+    valid_results = [r for r in results if len(r['episode_rewards']) > 0]
+    
+    if len(valid_results) == 0:
+        print("No valid results to plot.")
+        return
+    
+    # Create figure with subplots (2x5 grid for 10 configs)
+    fig, axes = plt.subplots(2, 5, figsize=(20, 8))
+    fig.suptitle('A2C Cumulative Rewards Over Episodes - All Configurations', fontsize=16, fontweight='bold')
+    axes = axes.flatten()
+    
+    for idx, result in enumerate(valid_results):
+        ax = axes[idx]
+        
+        episodes = list(range(1, len(result['episode_rewards']) + 1))
+        cumulative_rewards = np.cumsum(result['episode_rewards'])
+        
+        ax.plot(episodes, cumulative_rewards, linewidth=2, color='#9B59B6')
+        ax.fill_between(episodes, 0, cumulative_rewards, alpha=0.3, color='#9B59B6')
+        
+        ax.set_title(f"Config {result['config_id']}\nLR={result['learning_rate']}, γ={result['gamma']}", 
+                    fontsize=10, fontweight='bold')
+        ax.set_xlabel('Episode', fontsize=9)
+        ax.set_ylabel('Cumulative Reward', fontsize=9)
+        ax.grid(True, alpha=0.3)
+        ax.axhline(y=0, color='red', linestyle='--', alpha=0.5, linewidth=1)
+        
+        # Add mean reward annotation
+        ax.text(0.95, 0.05, f'Mean: {result["mean_reward"]:.1f}', 
+               transform=ax.transAxes, ha='right', va='bottom',
+               bbox=dict(boxstyle='round', facecolor='wheat', alpha=0.5),
+               fontsize=8)
+    
+    # Hide unused subplots
+    for idx in range(len(valid_results), len(axes)):
+        axes[idx].axis('off')
+    
+    plt.tight_layout()
+    plt.savefig(f"{save_path}cumulative_rewards_all_configs.png", dpi=300, bbox_inches='tight')
+    print(f"✅ Saved: {save_path}cumulative_rewards_all_configs.png")
+    plt.close()
+
+
+
+def main():
+    """Run hyperparameter search with 10 different configurations"""
+    
+    # Create save directories
+    os.makedirs("models/a2c", exist_ok=True)
+    os.makedirs("models/a2c/plots", exist_ok=True)
+    
+    print("\n" + "="*70)
+    print("A2C HYPERPARAMETER SEARCH - UBUNTU RL ENVIRONMENT")
+    print("="*70)
+    
+    # Define 10 different hyperparameter configurations
+    configs = [
+        # Config 1: Baseline
+        {'lr': 0.0007, 'gamma': 0.99, 'n_steps': 5, 'ent_coef': 0.01, 'vf_coef': 0.5},
+        
+        # Config 2: Higher learning rate
+        {'lr': 0.001, 'gamma': 0.9, 'n_steps': 10, 'ent_coef': 0.1, 'vf_coef': 0.4},
+        
+        # Config 3: Lower learning rate for stability
+        {'lr': 0.002, 'gamma': 0.10, 'n_steps': 5, 'ent_coef': 0.01, 'vf_coef': 0.5},
+        
+        # Config 4: Lower gamma (shorter-term focus)
+        {'lr': 0.001, 'gamma': 0.75, 'n_steps': 5, 'ent_coef': 1, 'vf_coef': 1},
+        
+        # Config 5: More steps for better advantage estimation
+        {'lr': 0.0005, 'gamma': 0.99, 'n_steps': 10, 'ent_coef': 0.01, 'vf_coef': 0.5},
+        
+        # Config 6: Fewer steps for faster updates
+        {'lr': 0.0001, 'gamma': 0.69, 'n_steps': 3, 'ent_coef': 0.01, 'vf_coef': 0.5},
+        
+        # Config 7: Higher entropy for more exploration
+        {'lr': 0.01, 'gamma': 0.99, 'n_steps': 10, 'ent_coef': 0.05, 'vf_coef': 0.01},
+        
+        # Config 8: Lower entropy for more exploitation
+        {'lr': 0.009, 'gamma': 0.50, 'n_steps': 3, 'ent_coef': 0.001, 'vf_coef': 0.05},
+        
+        # Config 9: Higher value function coefficient
+        {'lr': 0.008, 'gamma': 0.45, 'n_steps': 5, 'ent_coef': 0.01, 'vf_coef': 1.0},
+        
+        # Config 10: Lower value function coefficient
+        {'lr': 0.1, 'gamma': 0.78, 'n_steps': 5, 'ent_coef': 0.01, 'vf_coef': 0.25},
+    ]
+    
+    results = []
+    
+    # Train each configuration
+    for i, config in enumerate(configs, 1):
+        result = train_a2c_config(
+            config_id=i,
+            lr=config['lr'],
+            gamma=config['gamma'],
+            n_steps=config['n_steps'],
+            ent_coef=config['ent_coef'],
+            vf_coef=config['vf_coef'],
+            total_timesteps=150000
+        )
+        results.append(result)
+    
+    # Create results DataFrame
+    df = pd.DataFrame([{k: v for k, v in r.items() if k not in ['episode_rewards', 'timesteps', 'policy_losses', 'value_losses']} 
+                       for r in results])
+    df = df.sort_values('mean_reward', ascending=False)
+    
+    # Save results to CSV
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    csv_path = f"models/a2c/a2c_results_{timestamp}.csv"
+    df.to_csv(csv_path, index=False)
+    
+    # Print results table
+    print("\n" + "="*70)
+    print("RESULTS SUMMARY (Sorted by Mean Reward)")
+    print("="*70)
+    print(df[['config_id', 'learning_rate', 'gamma', 'n_steps', 
+              'ent_coef', 'vf_coef', 'mean_reward']].to_string(index=False))
+    
+    # Identify best configuration
+    best_config_id = df.iloc[0]['config_id']
+    best_result = [r for r in results if r['config_id'] == best_config_id][0]
+    
+    print("\n" + "="*70)
+    print("BEST CONFIGURATION:")
+    print("="*70)
+    print(f"Config ID: {best_result['config_id']}")
+    print(f"Learning Rate: {best_result['learning_rate']}")
+    print(f"Gamma: {best_result['gamma']}")
+    print(f"N Steps: {best_result['n_steps']}")
+    print(f"Entropy Coefficient: {best_result['ent_coef']}")
+    print(f"VF Coefficient: {best_result['vf_coef']}")
+    print(f"Mean Reward: {best_result['mean_reward']:.2f}")
+    print(f"Test Reward: {best_result['test_reward']:.2f}")
+    print(f"Model Path: {best_result['model_path']}.zip")
+    
+    # Copy best model to standard location
+    if best_result['model_path']:
+        import shutil
+        best_model_path = "models/a2c/ubuntu_agent_a2c_best"
+        shutil.copy(f"{best_result['model_path']}.zip", f"{best_model_path}.zip")
+        print(f"\n✅ Best model saved to: {best_model_path}.zip")
+    
+    print(f"\n📊 Full results saved to: {csv_path}")
+    
+    # Generate plots
+    print("\n" + "="*70)
+    print("GENERATING ANALYSIS PLOTS...")
+    print("="*70)
+    
+    plot_cumulative_rewards(results, save_path="models/a2c/plots/")
+    
+    print("\n✅ All plots generated successfully!")
+    print("="*70)
+    
+    return df, results
 
 
 if __name__ == "__main__":
-    train_a2c()
+    results_df, all_results = main()

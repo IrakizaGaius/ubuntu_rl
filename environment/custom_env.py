@@ -99,57 +99,47 @@ class UbuntuEnv(gym.Env):
         for x in range(self.grid_size):
             for y in range(self.grid_size):
                 near_goal = x >= (self.grid_size - 2)
-                
+                rand = random.random()
                 if near_goal:
-                    rand = random.random()
                     if rand < 0.55:
                         self.grid[(x, y)] = {'type': 'empty', 'philosophy': 'neutral', 'reward': 0, 'visited': False}
                     else:
                         philosophy = random.choice(good_morals)
-                        self.grid[(x, y)] = {'type': 'good', 'philosophy': philosophy, 'reward': self._get_philosophy_reward_value(philosophy), 'visited': False}
+                        self.grid[(x, y)] = {
+                            'type': 'good',
+                            'philosophy': philosophy,
+                            'reward': float(self._get_philosophy_reward_value(philosophy)),
+                            'visited': False
+                        }
                 else:
-                    rand = random.random()
                     if rand < 0.55:
                         self.grid[(x, y)] = {'type': 'empty', 'philosophy': 'neutral', 'reward': 0, 'visited': False}
                     elif rand < 0.90:
                         philosophy = random.choice(good_morals)
-                        self.grid[(x, y)] = {'type': 'good', 'philosophy': philosophy, 'reward': self._get_philosophy_reward_value(philosophy), 'visited': False}
+                        self.grid[(x, y)] = {
+                            'type': 'good',
+                            'philosophy': philosophy,
+                            'reward': float(self._get_philosophy_reward_value(philosophy)),
+                            'visited': False
+                        }
                     else:
                         philosophy = random.choice(bad_morals)
-                        self.grid[(x, y)] = {'type': 'bad', 'philosophy': philosophy, 'reward': self._get_philosophy_reward_value(philosophy), 'visited': False}
-        
+                        self.grid[(x, y)] = {
+                            'type': 'bad',
+                            'philosophy': philosophy,
+                            'reward': float(self._get_philosophy_reward_value(philosophy)),
+                            'visited': False
+                        }
+
         self.start_pos = (0, self.grid_size // 2)
-        self.grid[self.start_pos] = {'type': 'empty', 'philosophy': 'start', 'reward': 0, 'visited': True}
-        
+        self.grid[self.start_pos] = {'type': 'empty', 'philosophy': 'start', 'reward': 0.0, 'visited': True}
+
         self.goal_pos = (self.grid_size - 1, self.grid_size // 2)
-        self.grid[self.goal_pos] = {'type': 'goal', 'philosophy': 'ubuntu_mastery', 'reward': 100, 'visited': False}
-        
-        # Ensure no clear straight path: mix good and bad on direct row to goal
-        start_row = self.start_pos[1]
-        for x in range(1, self.grid_size - 1):
-            if (x, start_row) != self.start_pos and (x, start_row) != self.goal_pos:
-                # Force philosophy encounters with mixed good/bad (60% good, 40% bad)
-                rand = random.random()
-                if rand < 0.60:
-                    philosophy = random.choice(good_morals)
-                    self.grid[(x, start_row)] = {'type': 'good', 'philosophy': philosophy, 'reward': self._get_philosophy_reward_value(philosophy), 'visited': False}
-                else:
-                    philosophy = random.choice(bad_morals)
-                    self.grid[(x, start_row)] = {'type': 'bad', 'philosophy': philosophy, 'reward': self._get_philosophy_reward_value(philosophy), 'visited': False}
-        
-        # ROBUSTNESS: Adversarial philosophy placement near goal (harder challenges)
-        goal_x, goal_y = self.goal_pos
-        for dx in [-1, 0, 1]:
-            for dy in [-1, 0, 1]:
-                x, y = goal_x + dx, goal_y + dy
-                if 0 <= x < self.grid_size and 0 <= y < self.grid_size and (x, y) != self.goal_pos:
-                    if random.random() < 0.3:  # 30% chance of adversarial bad philosophy
-                        philosophy = random.choice(bad_morals)
-                        self.grid[(x, y)] = {'type': 'bad', 'philosophy': philosophy, 'reward': self._get_philosophy_reward_value(philosophy), 'visited': False}
-        
-        self.grid_pos = list(self.start_pos)
+        self.grid[self.goal_pos] = {'type': 'goal', 'philosophy': 'ubuntu_mastery', 'reward': 100.0, 'visited': False}
+
+        # Reset agent state
+        self.grid_pos = [int(self.start_pos[0]), int(self.start_pos[1])]
         self.position = np.array([self.grid_pos[0] * self.cell_size, self.grid_pos[1] * self.cell_size], dtype=np.float32)
-        
         self.velocity = np.zeros(2, dtype=np.float32)
         self.ubuntu_score = 0.0
         self.negative_actions = 0
@@ -165,7 +155,7 @@ class UbuntuEnv(gym.Env):
         self.furthest_progress = 0
         self.position_history = []
         self.stuck_counter = 0
-        self.last_dist_to_goal = self.grid_size * 2
+        self.last_dist_to_goal = float(self.grid_size * 2)
         
         # Reset robustness & evaluation tracking
         self.encountered_philosophies = set()
@@ -175,160 +165,160 @@ class UbuntuEnv(gym.Env):
         self.harm_minimization_score = 0.0
         self.composite_ubuntu_score = 0.0
 
-        return self._get_obs(), {}
+        obs = self._get_obs()
+        return obs, {}
     
     def _get_obs(self):
-        """Generate rich observation with vision, semantics, and history."""
-        
-        # STRATEGIC PLANNING: 5x5 Vision grid with one-hot philosophy encoding
+        """Generate sanitized observation with vision, semantics, and history."""
+
         vision_obs = []
         for dy in range(-self.vision_radius, self.vision_radius + 1):
             for dx in range(-self.vision_radius, self.vision_radius + 1):
-                x = self.grid_pos[0] + dx
-                y = self.grid_pos[1] + dy
-                
+                x = int(self.grid_pos[0] + dx)
+                y = int(self.grid_pos[1] + dy)
+
                 if 0 <= x < self.grid_size and 0 <= y < self.grid_size:
                     cell = self.grid[(x, y)]
                     philosophy = cell['philosophy']
-                    
-                    # RICH SEMANTICS: One-hot encode philosophy (10 types)
+
                     one_hot = np.zeros(10, dtype=np.float32)
                     if philosophy in self.philosophy_to_idx:
-                        one_hot[self.philosophy_to_idx[philosophy]] = 1.0
-                    elif philosophy == 'start' or philosophy == 'neutral':
-                        pass  # Keep as zeros
+                        one_hot[int(self.philosophy_to_idx[philosophy])] = 1.0
+                    elif philosophy in ['start', 'neutral']:
+                        pass
                     elif philosophy == 'ubuntu_mastery':
-                        one_hot[:5] = 0.5  # Goal cell: activate all good philosophies partially
-                    
-                    vision_obs.extend(one_hot)
+                        one_hot[:5] = 0.5
                 else:
-                    # Out of bounds: all zeros
-                    vision_obs.extend(np.zeros(10, dtype=np.float32))
-        
+                    one_hot = np.zeros(10, dtype=np.float32)
+
+                vision_obs.extend(one_hot)
+
         vision_obs = np.array(vision_obs, dtype=np.float32)
-        
-        # Base state features
-        pos_x_norm = self.grid_pos[0] / float(self.grid_size - 1)
-        pos_y_norm = self.grid_pos[1] / float(self.grid_size - 1)
-        ubuntu_norm = np.clip(self.ubuntu_score / 300.0, -1.0, 1.0)
-        pos_norm = np.clip(self.positive_actions / 10.0, 0.0, 1.0)
-        neg_norm = np.clip(self.negative_actions / 10.0, 0.0, 1.0)
+
+        pos_x_norm = float(self.grid_pos[0]) / float(self.grid_size - 1)
+        pos_y_norm = float(self.grid_pos[1]) / float(self.grid_size - 1)
+        ubuntu_norm = float(np.clip(self.ubuntu_score / 300.0, -1.0, 1.0))
+        pos_norm = float(np.clip(self.positive_actions / 10.0, 0.0, 1.0))
+        neg_norm = float(np.clip(self.negative_actions / 10.0, 0.0, 1.0))
         dist_to_goal = abs(self.grid_pos[0] - self.goal_pos[0]) + abs(self.grid_pos[1] - self.goal_pos[1])
-        dist_norm = dist_to_goal / float(self.grid_size * 2)
-        
-        # Ubuntu state encoding (3 values: LEARNING, LEARNER, MASTER/ANTI)
+        dist_norm = float(dist_to_goal / float(self.grid_size * 2))
+
         state_encoding = np.zeros(3, dtype=np.float32)
         if self.ubuntu_state == 'LEARNING':
             state_encoding[0] = 1.0
         elif self.ubuntu_state == 'UBUNTU_LEARNER':
             state_encoding[1] = 1.0
-        elif self.ubuntu_state in ['UBUNTU_MASTER', 'ANTI_UBUNTU']:
-            state_encoding[2] = 1.0 if self.ubuntu_state == 'UBUNTU_MASTER' else -1.0
-        
-        # COMPREHENSIVE EVALUATION: Diversity, consistency, harm minimization
-        self.diversity_score = len(self.encountered_philosophies) / 10.0  # 0-1
-        self.consistency_score = 1.0 - (self.negative_actions / max(self.positive_actions + 1, 1))  # 0-1
-        self.consistency_score = np.clip(self.consistency_score, 0.0, 1.0)
-        self.harm_minimization_score = 1.0 / (1.0 + self.negative_actions)  # 0-1
-        
+        elif self.ubuntu_state == 'UBUNTU_MASTER':
+            state_encoding[2] = 1.0
+        elif self.ubuntu_state == 'ANTI_UBUNTU':
+            state_encoding[2] = -1.0
+
+        self.diversity_score = float(len(self.encountered_philosophies) / 10.0)
+        self.consistency_score = float(np.clip(1.0 - (self.negative_actions / max(self.positive_actions + 1, 1)), 0.0, 1.0))
+        self.harm_minimization_score = float(1.0 / (1.0 + self.negative_actions))
+
         eval_obs = np.array([self.diversity_score, self.consistency_score, self.harm_minimization_score], dtype=np.float32)
-        
-        # Combine all features
+
         base_obs = np.concatenate([
-            vision_obs,  # 250 dims (5×5×10)
-            [pos_x_norm, pos_y_norm, ubuntu_norm, pos_norm, neg_norm, dist_norm],  # 6 dims
-            state_encoding,  # 3 dims
-            [pos_norm, neg_norm],  # 2 dims (duplicate for compatibility)
-            eval_obs  # 3 dims
+            vision_obs,
+            np.array([pos_x_norm, pos_y_norm, ubuntu_norm, pos_norm, neg_norm, dist_norm], dtype=np.float32),
+            state_encoding,
+            np.array([pos_norm, neg_norm], dtype=np.float32),  # compatibility
+            eval_obs
         ])
-        
-        # MEMORY/HISTORY: Add temporal context
+
         if self.enable_history:
             self.observation_history.append(base_obs)
             if len(self.observation_history) > self.history_length:
                 self.observation_history.pop(0)
-            
-            # Pad history if needed
-            history_padding = [np.zeros_like(base_obs)] * (self.history_length - len(self.observation_history))
+            history_padding = [np.zeros_like(base_obs) for _ in range(self.history_length - len(self.observation_history))]
             full_history = history_padding + self.observation_history
-            
-            # Flatten history
             history_obs = np.concatenate(full_history)
             obs = np.concatenate([base_obs, history_obs])
         else:
             obs = base_obs
-        
+
         return obs.astype(np.float32)
 
     def step(self, action):
+        # FIX: Convert action to Python int immediately
+        # Stable Baselines3 sometimes passes actions as numpy arrays or numpy scalars
+        if isinstance(action, np.ndarray):
+            action = int(action.item())
+        elif isinstance(action, (np.integer, np.int32, np.int64)):
+            action = int(action)
+        else:
+            action = int(action)
+        
         self.steps += 1
         reward = 0.0
         info = {}
         truncated = False
         terminated = False
-        
-        # ROBUSTNESS: Dynamic philosophy spawning (5% chance per step)
+
+        # Dynamic philosophy spawning
         if random.random() < self.dynamic_spawn_chance:
             self._spawn_dynamic_philosophy()
-        
+
         action_names = ['LEFT', 'RIGHT', 'UP', 'DOWN']
         directions = [(-1, 0), (1, 0), (0, 1), (0, -1)]
-        
+
         info['action_type'] = action_names[action]
         info['grid_pos'] = tuple(self.grid_pos)
-        
+
         dx, dy = directions[action]
         new_x = self.grid_pos[0] + dx
         new_y = self.grid_pos[1] + dy
-        
+
+        # Track repeated moves
         if self.last_action is not None:
             opposite_actions = {0: 1, 1: 0, 2: 3, 3: 2}
             if action == opposite_actions.get(self.last_action, -1):
                 self.repeated_moves += 1
             else:
                 self.repeated_moves = 0
-        
+
         self.position_history.append(tuple(self.grid_pos))
         if len(self.position_history) > 10:
             self.position_history.pop(0)
-        
+
         unique_positions = set()
         if len(self.position_history) >= 10:
             unique_positions = set(self.position_history[-10:])
             if len(unique_positions) <= 4:
                 self.stuck_counter += 1
-                if self.grid_pos[0] >= self.grid_size - 2:
-                    self.stuck_counter += 1
+            if self.grid_pos[0] >= self.grid_size - 2:
+                self.stuck_counter += 1
             else:
                 self.stuck_counter = 0
-        
+
         if 0 <= new_x < self.grid_size and 0 <= new_y < self.grid_size:
             old_pos = tuple(self.grid_pos)
             self.grid_pos = [new_x, new_y]
             new_pos = tuple(self.grid_pos)
             self.position = np.array([new_x * self.cell_size, new_y * self.cell_size], dtype=np.float32)
-            
+
             if new_x > self.furthest_progress:
                 self.furthest_progress = new_x
                 reward += 2.0
-            
+
             if self.repeated_moves >= 2:
                 reward -= 1.5
-                if self.grid_pos[0] >= self.grid_size - 2:
-                    reward -= 2.0
-            
+            if self.grid_pos[0] >= self.grid_size - 2:
+                reward -= 2.0
+
             stuck_threshold = 5 if self.grid_pos[0] < self.grid_size - 2 else 3
             if self.stuck_counter >= stuck_threshold:
                 reward -= 3.0
                 info['stuck'] = True
-            
+
             if self.stuck_counter > 0 and len(unique_positions) > 4:
                 reward += 1.0
-            
+
             self.last_action = action
             self.last_position = list(old_pos)
             cell = self.grid[new_pos]
-            
+
             # Record move
             self.decision_history.append({
                 'from': old_pos,
@@ -337,96 +327,82 @@ class UbuntuEnv(gym.Env):
                 'cell_type': cell['type'],
                 'philosophy': cell['philosophy']
             })
-            
-            # Apply rewards based on cell type (only if not visited before)
+
+            # Apply rewards based on cell type
             if not cell['visited']:
                 cell['visited'] = True
-                
+
                 if cell['type'] == 'good':
                     reward += float(cell['reward']) * 2.0
                     self.ubuntu_score += float(cell['reward'])
                     self.positive_actions += 1
-                    
-                    # ROBUSTNESS: Track philosophy diversity
                     self.encountered_philosophies.add(cell['philosophy'])
-                    
-                    info['cell_type'] = 'good'
-                    info['philosophy'] = cell['philosophy']
-                    info['cell_reward'] = cell['reward']
-                    
+                    info.update({
+                        'cell_type': 'good',
+                        'philosophy': cell['philosophy'],
+                        'cell_reward': float(cell['reward'])
+                    })
                     self._create_particles(self.position, 'green', 20)
-                    
+
                 elif cell['type'] == 'bad':
-                    reward += float(cell['reward'])  # Already negative
+                    reward += float(cell['reward'])
                     self.ubuntu_score += float(cell['reward'])
                     self.negative_actions += 1
-                    
-                    # ROBUSTNESS: Track philosophy diversity
                     self.encountered_philosophies.add(cell['philosophy'])
-                    
-                    info['cell_type'] = 'bad'
-                    info['philosophy'] = cell['philosophy']
-                    info['cell_reward'] = cell['reward']
-                    
+                    info.update({
+                        'cell_type': 'bad',
+                        'philosophy': cell['philosophy'],
+                        'cell_reward': float(cell['reward'])
+                    })
                     self._create_particles(self.position, 'red', 20)
-                    
-                    # Too many bad actions = game over
+
                     if self.negative_actions >= self.violence_limit:
                         terminated = True
                         reward -= 200.0
                         info['reason'] = 'too_many_bad_choices'
                         self.ubuntu_state = 'ANTI_UBUNTU'
-                        
+
                 elif cell['type'] == 'goal':
-                    # Reached the goal!
                     terminated = True
                     reward += float(cell['reward'])
-                    
-                    # COMPREHENSIVE EVALUATION: Compute composite Ubuntu mastery score
                     self.composite_ubuntu_score = self._compute_composite_ubuntu_score()
-                    
-                    # ROBUSTNESS: Require diversity threshold
                     diversity_met = len(self.encountered_philosophies) >= self.required_diversity
-                    
+
                     if self.ubuntu_score >= self.ubuntu_threshold and diversity_met:
                         reward += 300.0
                         info['reason'] = 'ubuntu_mastered'
                         self.ubuntu_state = 'UBUNTU_MASTER'
-                    elif self.ubuntu_score >= self.ubuntu_threshold and not diversity_met:
-                        reward += 150.0  # Partial success
+                    elif self.ubuntu_score >= self.ubuntu_threshold:
+                        reward += 150.0
                         info['reason'] = 'goal_reached_insufficient_diversity'
                         self.ubuntu_state = 'UBUNTU_LEARNER'
                     else:
                         reward += 100.0
                         info['reason'] = 'goal_reached'
                         self.ubuntu_state = 'UBUNTU_LEARNER'
-                    
+
                     info['cell_type'] = 'goal'
                     self._create_particles(self.position, 'gold', 40)
-                    
+
                 elif cell['type'] == 'empty':
-                    reward -= 0.05  # Very small penalty for empty cells
+                    reward -= 0.05
                     info['cell_type'] = 'empty'
-                    
-            else:
-                # Already visited - small penalty
-                reward -= 0.5
-                info['cell_type'] = cell['type']
-                info['visited'] = True
+
+                else:
+                    reward -= 0.5
+                    info['cell_type'] = cell['type']
+                    info['visited'] = True
+
         else:
-            # Invalid move (hit wall) - stronger penalty
             reward -= 2.0
             info['wall_collision'] = True
-            
-            # If near goal and hitting wall, penalize oscillation more
             if self.grid_pos[0] >= self.grid_size - 2:
                 reward -= 2.0
-                self.stuck_counter += 2  # Accelerate stuck counter near goal
-        
-        # Update ubuntu state based on score (but MASTER only at goal)
+            self.stuck_counter += 2
+
+        # Update ubuntu state
         if not terminated:
             if self.ubuntu_score >= self.ubuntu_threshold:
-                # High score but not at goal yet = LEARNER (candidate for mastery)
                 self.ubuntu_state = 'UBUNTU_LEARNER'
                 self.agent_color = [0.5, 1.0, 0.5, 1.0]
             elif self.ubuntu_score >= self.ubuntu_threshold // 2:
@@ -438,59 +414,63 @@ class UbuntuEnv(gym.Env):
             else:
                 self.ubuntu_state = 'LEARNING'
                 self.agent_color = [1.0, 1.0, 1.0, 1.0]
-        
+
         # Update particles
         self.particles = [p for p in self.particles if p['lifetime'] > 0]
         for p in self.particles:
             p['position'] = p['position'] + p['velocity']
             p['lifetime'] -= 1
             p['velocity'] *= 0.95
-        
-        # Distance-based reward (encourage moving toward goal)
+
+        # Distance-based rewards
         dist_to_goal = abs(self.grid_pos[0] - self.goal_pos[0]) + abs(self.grid_pos[1] - self.goal_pos[1])
-        
-        # Stronger gradient toward goal - increases as you get closer
         progress_ratio = self.grid_pos[0] / float(self.grid_size - 1)
-        reward += progress_ratio * 1.0  # Stronger reward for being further right
-        
-        # Much stronger bonus for being close to goal
+        reward += progress_ratio * 1.0
         if dist_to_goal <= 3:
-            reward += (4 - dist_to_goal) * 2.0  # Strong pull toward goal when close
-        
-        # Bonus for moving closer to goal (not just being there)
-        if hasattr(self, 'last_dist_to_goal'):
-            if dist_to_goal < self.last_dist_to_goal:
-                reward += 0.5  # Reward for getting closer
+            reward += (4 - dist_to_goal) * 2.0
+        if hasattr(self, 'last_dist_to_goal') and dist_to_goal < self.last_dist_to_goal:
+            reward += 0.5
         self.last_dist_to_goal = dist_to_goal
-        
-        # Force termination if extremely stuck (oscillating for too long)
+
         if self.stuck_counter >= 15:
             terminated = True
             reward -= 50.0
             info['reason'] = 'stuck_oscillating'
-        
-        # Check max steps
+
         if self.steps >= MAX_EPISODE_STEPS:
             terminated = True
             info['reason'] = 'max_steps'
-            if self.ubuntu_score > 0:
-                reward += 30.0
-            else:
-                reward -= 30.0
-        
-        info['ubuntu_score'] = self.ubuntu_score
-        info['ubuntu_state'] = self.ubuntu_state
-        info['distance_to_goal'] = dist_to_goal
-        
-        # COMPREHENSIVE EVALUATION: Add metrics to info
-        info['diversity_score'] = self.diversity_score
-        info['consistency_score'] = self.consistency_score
-        info['harm_minimization_score'] = self.harm_minimization_score
-        info['composite_ubuntu_score'] = self.composite_ubuntu_score
-        info['philosophies_encountered'] = len(self.encountered_philosophies)
-        info['diversity_met'] = len(self.encountered_philosophies) >= self.required_diversity
-        
+            reward += 30.0 if self.ubuntu_score > 0 else -30.0
+
+        # Add evaluation metrics
+        info.update({
+            'ubuntu_score': float(self.ubuntu_score),
+            'ubuntu_state': self.ubuntu_state,
+            'distance_to_goal': int(dist_to_goal),
+            'diversity_score': float(self.diversity_score),
+            'consistency_score': float(self.consistency_score),
+            'harm_minimization_score': float(self.harm_minimization_score),
+            'composite_ubuntu_score': float(self.composite_ubuntu_score),
+            'philosophies_encountered': int(len(self.encountered_philosophies)),
+            'diversity_met': bool(len(self.encountered_philosophies) >= self.required_diversity)
+        })
+
+        # SANITIZE INFO: Convert any remaining numpy scalars to Python types
+        for k, v in list(info.items()):
+            if isinstance(v, (np.float32, np.float64)):
+                info[k] = float(v)
+            elif isinstance(v, (np.int32, np.int64)):
+                info[k] = int(v)
+            elif isinstance(v, np.ndarray):
+                info[k] = v.tolist()
+            elif isinstance(v, tuple):
+                # Sanitize tuples that might contain numpy types
+                info[k] = tuple(int(x) if isinstance(x, (np.integer,)) else 
+                               float(x) if isinstance(x, (np.floating,)) else x 
+                               for x in v)
+
         return self._get_obs(), float(reward), bool(terminated), bool(truncated), info
+
     
     def _get_philosophy_reward_value(self, philosophy_type):
         """Get reward value for a philosophy type"""
