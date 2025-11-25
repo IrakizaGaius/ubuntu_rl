@@ -1,292 +1,371 @@
-# Ubuntu RL Environment
+# **Ubuntu RL Environment**
 
-An advanced reinforcement learning environment simulating Ubuntu philosophy - "I am because we are". Agents learn to balance personal goals with community welfare through dynamic interactions with NPCs, resource management, and ethical decision-making.
+A reinforcement learning environment where an AI agent learns Ubuntu philosophy - the African concept of interconnected humanity meaning "I am because we are". The agent navigates a 9×9 grid world, making moral and ethical decisions while balancing navigation efficiency, philosophy diversity, and community welfare to achieve Ubuntu Mastery.
 
-## 🌟 Features
+## **🌟 Features**
 
-- **12 Actions**: 8-directional movement + 4 interaction types (Help, Share, Ignore, Take)
-- **16-Dimensional Observations**: Position, velocity, scores, spatial awareness
-- **Physics-Based Movement**: Realistic velocity, friction, and collision detection
-- **Dynamic Entities**: People needing help, emergencies, resource requesters, obstacles
-- **Health & Urgency Systems**: Time-sensitive decision making
-- **Resource Management**: Collect and share resources with the community
-- **Particle Effects**: Visual feedback for actions
-- **Interactive 3D Visualization**: Real-time animated playback with Plotly
+- **Multi-Objective Learning**: Balance goal-reaching, moral decision-making, and philosophy diversity
+- **Rich Semantic Observations**: 5×5 vision grid with one-hot encoded philosophy types, temporal memory (5-step history), and comprehensive evaluation metrics
+- **10 Philosophy Types**: 5 positive (help_needy, share_knowledge, show_compassion, build_community, forgive) and 5 negative (selfish_act, harm_other, hoard_resources, show_greed, violence)
+- **Dynamic Environment**: Adversarial philosophy placement, dynamic spawning (5% per step), and robust diversity requirements
+- **Comprehensive Evaluation**: Tracks diversity score, consistency score, harm minimization, and composite Ubuntu score
+- **Beautiful Visualization**: Interactive pygame rendering with Ubuntu Temple, philosophy symbols, and AI robot agent
 
-## 📁 Project Structure
+## **📁 Project Structure**
 
-```
+```bash
 ubuntu_rl/
+
+├── Configurations/
+
+│ └── config.py # Environment configuration (ENV_SIZE=9.0, MAX_EPISODE_STEPS=500)
+
 ├── environment/
-│   ├── __init__.py
-│   ├── custom_env.py       # Custom Gymnasium environment implementation
-│   └── rendering.py         # Visualization GUI components 
-├── training/
-│   ├── __init__.py
-│   ├── dqn_training.py            # DQN (Value-Based)
-│   ├── pg_training.py             # PPO (Policy Gradient)
-│   ├── reinforce_training.py      # REINFORCE (Policy Gradient)
-│   └── actor_critic_training.py   # A2C (Actor-Critic)
+
+│ ├── \__init_\_.py
+
+│ └── custom_env.py # Custom Gymnasium environment with Ubuntu philosophy
+
 ├── models/
-│   ├── dqn/                       # Saved DQN models
-│   ├── pg/                        # Saved PPO and REINFORCE models
-│   └── actor_critic/              # Saved A2C models
-├── main.py                 # Entry point for running best performing model
-├── train_all.py            # Train all four algorithms and compare
-├── compare_models.py       # Detailed comparison of trained models
-├── config.py               # Environment configuration parameters
-├── requirements.txt        # Project dependencies
-└── README.md              # Project documentation
+
+│ ├── dqn/ # DQN models and results
+
+│ │ ├── plots/ # Training analysis plots
+
+│ │ └── dqn_results_\*.csv # Hyperparameter search results
+
+│ ├── ppo/ # PPO models and results
+
+│ ├── a2c/ # A2C models and results
+
+│ └── reinforce/ # REINFORCE models and results
+
+├── training/
+
+│ ├── dqn_training.py # DQN hyperparameter search (10 configs)
+
+│ ├── pg_training.py # PPO hyperparameter search (10 configs)
+
+│ ├── actor_critic_training.py # A2C hyperparameter search (10 configs)
+
+│ └── reinforce_training.py # REINFORCE hyperparameter search (10 configs)
+
+├── requirements.txt # Project dependencies
+
+└── README.md # Project documentation
 ```
 
-## 🚀 Quick Start
+## **🚀 Quick Start**
 
-### Installation
+### **Installation**
 
-1. Clone the repository or download the project
-2. Install dependencies:
+1. Clone the repository:
+
+```bash
+git clone &lt;repository-url&gt;
+
+cd ubuntu_rl
+```
+
+1. Create and activate a virtual environment:
+
+```bash
+python -m venv .venv
+
+source .venv/bin/activate # On Windows: .venv\\Scripts\\activate
+```
+
+**4 discrete actions for grid navigation:**
+
+| Action | Direction | Effect                      |
+| ------ | --------- | --------------------------- |
+| 0      | LEFT      | Move one cell left (x - 1)  |
+| 1      | RIGHT     | Move one cell right (x + 1) |
+| 2      | UP        | Move one cell up (y + 1)    |
+| 3      | DOWN      | Move one cell down (y - 1)  |
+
+1. Install dependencies:
+
 ```bash
 pip install -r requirements.txt
 ```
 
-### Training
+### **Training**
 
-**Train all four algorithms at once (recommended):**
+Each training script runs **10 different hyperparameter configurations** and automatically:
+
+- Trains all configurations with 150,000 timesteps each
+- Saves all models to models/`<algorithm>`/
+- Identifies and saves the best model as ubuntu_agent_`<algorithm>`_best.zip
+- Generates comprehensive analysis plots in models/`<algorithm>`/plots/
+- Saves results table to CSV with timestamp
+
+**Train algorithms:**
 
 ```bash
-python train_all.py
-```
-
-**Or train algorithms individually:**
-
-```bash
-# DQN (Value-Based)
+# DQN (Deep Q-Network) - Value-Based
 python training/dqn_training.py
 
-# PPO (Policy Gradient)
+# PPO (Proximal Policy Optimization) - Policy Gradient
 python training/pg_training.py
 
-# REINFORCE (Policy Gradient)
+# A2C (Advantage Actor-Critic) - Actor-Critic
+python training/actor_critic_training.py
+
+# REINFORCE (Pure Policy Gradient) - Baseline
+python training/reinforce_training.py
+```
+
+**Total Reward:** $R_{total} = R_{cell} + R_{progress} + R_{movement} + R_{terminal}$
+
+| Component                                               | Condition                                       | Reward Range |
+| ------------------------------------------------------- | ----------------------------------------------- | ------------ |
+| Good Philosophy                                         | help_needy, share_knowledge, etc.               | +12 to +30   |
+| Bad Philosophy                                          | violence, harm_other, etc.                      | -50 to -8    |
+| Progress                                                | Moving toward goal                              | +0.5 to +2.0 |
+| Proximity                                               | Within 3 cells of goal                          | +2.0 to +8.0 |
+| Wall/Stuck                                              | Invalid moves, oscillation                      | -2.0 to -4.0 |
+| Goal Reached                                            | Ubuntu Mastery (score ≥ 60 + diversity ≥ 70%) | +400         |
+| Goal Reached                                            | Partial success                                 | +200 to +250 |
+| Violence Limit                                          | 5+ bad actions                                  | -200         |
+| \# PPO (Proximal Policy Optimization) - Policy Gradient |                                                 |              |
+
+python training/pg_training.py
+\# REINFORCE (Pure Policy Gradient) - Baseline
+
 python training/reinforce_training.py
 
-# A2C (Actor-Critic)
-python training/actor_critic_training.py
-```
+**Good Philosophies:**
 
-**Training parameters:**
-- **DQN**: 200,000 timesteps, learning rate 0.0001
-- **PPO**: 200,000 timesteps, learning rate 0.0003
-- **REINFORCE**: 200,000 timesteps, learning rate 0.0007
-- **A2C**: 200,000 timesteps, learning rate 0.0007
+| Philosophy      | Reward                   |
+| --------------- | ------------------------ |
+| help_needy      | +30 (15 × 2 multiplier) |
+| share_knowledge | +24                      |
+| show_compassion | +20                      |
+| build_community | +16                      |
+| forgive         | +12                      |
 
-### Model Comparison
+**Bad Philosophies:**
 
-Compare all trained models:
+| Philosophy      | Reward |
+| --------------- | ------ |
+| violence        | -50    |
+| harm_other      | -15    |
+| selfish_act     | -12    |
+| hoard_resources | -10    |
+| show_greed      | -8     |
 
-```bash
-python compare_models.py --episodes 10
-```
+- Results CSV: models/&lt;algorithm&gt;/&lt;algorithm&gt;\_results_&lt;timestamp&gt;.csv
+- Plots:
+  -cumulative_rewards_all_configs.png - All 10 configurations
 
-This will evaluate each algorithm and provide detailed performance metrics.
+**Pygame rendering features:**
 
-### Visualization
+- Sky gradient with sun and clouds
+- Ubuntu Temple (golden shrine at goal)
+- Philosophy symbols: Rounded squares (good) vs triangles (bad)
+- AI Robot agent with state-based colors and animations
+- Nature elements: Trees, bushes, houses, flowers
+- Path trails: Visual history of agent movement
+- Particle effects: Philosophy interaction feedback
+- Info panel: Real-time Ubuntu score, state, and actions
 
-Run the trained agent with interactive 3D visualization:
-```bash
-python main.py
-```
+python -c "
 
-This will:
-1. Load the best performing model (PPO or DQN)
-2. Run a full episode (up to 200 steps)
-3. Display statistics (rewards, scores, action distribution)
-4. Open an interactive 3D animation in your browser
+**Contributions welcome!**
 
-## 🎮 Environment Details
+Areas for improvement:
 
-### Action Space
-
-The environment provides 12 discrete actions:
-
-| Action ID | Type | Description |
-|-----------|------|-------------|
-| 0-7 | Movement | 8-directional movement (N, NE, E, SE, S, SW, W, NW) |
-| 8 | Help | Help nearby person in need (Ubuntu action) |
-| 9 | Share | Share resources with community |
-| 10 | Ignore | Ignore someone in need (Selfish action) |
-| 11 | Take | Take resources for yourself |
-
-### Observation Space
-
-16-dimensional continuous observation vector:
-- Agent position (x, y)
-- Agent velocity (vx, vy)
-- Community score, Personal score
-- Nearest person info (rel_x, rel_y, urgency, distance)
-- Nearest obstacle info (rel_x, rel_y, distance)
-- Resources carried
-- Nearby entity counts
-
-### Rewards
-
-- **Ubuntu actions** (Help): +10 + urgency bonus
-- **Selfish actions** (Ignore, Take): +3
-- **Negative outcomes**: -5
-- **Step survival**: +0.1
-- **Entity death penalty**: -2
-- **Collision penalty**: -2
-
-### Entities
-
-1. **People**: Need help, have urgency and health that decay over time
-2. **Emergencies**: Critical situations requiring immediate help
-3. **Resource Requesters**: NPCs needing resources
-4. **Resource Deposits**: Collectible items
-5. **Obstacles**: Static or moving barriers
-
-## 🔧 Configuration
-
-Edit `config.py` to adjust environment parameters:
+- Additional RL algorithms (SAC, TD3, Rainbow DQN)
+- Curriculum learning for moral progression
+- Multi-agent Ubuntu scenarios
+- Transfer learning across grid sizes
+- Interpretability analysis of learned policies
 
 ```python
-ENV_SIZE = 5                 # Environment dimensions (-5 to +5)
-MAX_EPISODE_STEPS = 500      # Maximum steps per episode
-REWARD_UBUNTU = 10           # Reward for helping others
-REWARD_SELFISH = 3           # Reward for selfish actions
-REWARD_NEGATIVE = -5         # Penalty for negative outcomes
-COMMUNITY_DECAY = 0.002      # Community score decay rate
+import gymnasium as gym
+model = DQN.load('models/dqn/ubuntu_agent_dqn_best')
+
+for episode in range(3):
+
+obs, _ = env.reset()
+
+done = False
+
+total_reward = 0
+
+while not done:
+
+action, _ = model.predict(obs, deterministic=True)
+
+obs, reward, terminated, truncated, info = env.step(action)
+
+total_reward += reward
+
+done = terminated or truncated
+
+env.render()
+
+print(f'Episode {episode+1}: Reward={total_reward:.1f}, Ubuntu Score={env.ubuntu_score:.1f}, State={env.ubuntu_state}')
+
+env.close()
 ```
 
-## 📊 Visualization Features
+## **🎮 Environment Details**
 
-The interactive 3D visualization includes:
+### **Action Space**
 
-- **3D Environment View**: 
-  - Agent (blue diamond) with resource counter
-  - NPCs with status indicators (🙋❗🆘✓)
-  - Obstacles (gray squares)
-  - Resources (gold diamonds)
-  - Particle effects
-  - Agent trail
-  - Velocity indicators
+4 discrete actions for grid navigation:
 
-- **Score Graphs**:
-  - Community score over time
-  - Personal score over time
-  - Resources carried
+| **Action** | **Direction** | **Effect**            |
+| ---------------- | ------------------- | --------------------------- |
+| 0                | LEFT                | Move one cell left (x - 1)  |
+| 1                | RIGHT               | Move one cell right (x + 1) |
+| 2                | UP                  | Move one cell up (y + 1)    |
+| 3                | DOWN                | Move one cell down (y - 1)  |
 
-- **Reward Timeline**:
-  - Cumulative reward
-  - Instant rewards with color coding
+### **Observation Space**
 
-- **Interactive Controls**:
-  - Play/Pause/Restart buttons
-  - Timeline slider
-  - 3D rotation and zoom
-  - Hover tooltips
+**Type:** Box(low=-1.0, high=1.0, shape=(1584,), dtype=float32)
 
-## � Algorithms Implemented
+**Components:**
 
-### 1. DQN - Deep Q-Network (Value-Based)
-- **Type**: Value-Based
-- **Approach**: Learns Q-values for state-action pairs
-- **Strengths**: Sample efficient with experience replay, good for discrete actions
-- **Use Case**: When you need stable learning with replay buffer
+1. **Vision Grid (250 dims)**: 5×5 grid around agent, each cell encoded as 10-dim one-hot vector for philosophy type
+2. **Position & Progress (6 dims)**: Normalized x/y position, Ubuntu score, positive/negative actions, distance to goal
+3. **Ubuntu State (3 dims)**: One-hot encoding of LEARNING/UBUNTU_LEARNER/UBUNTU_MASTER states
+4. **Evaluation Metrics (3 dims)**: Diversity score, consistency score, harm minimization score
+5. **History (1320 dims)**: Last 5 observations flattened for temporal reasoning
 
-### 2. PPO - Proximal Policy Optimization (Policy Gradient)
-- **Type**: Policy Gradient
-- **Approach**: Directly learns policy with clipped objectives
-- **Strengths**: More stable than vanilla policy gradient, good performance
-- **Use Case**: Recommended for most RL tasks, good balance
+### **Reward Structure**
 
-### 3. REINFORCE (Policy Gradient)
-- **Type**: Pure Policy Gradient
-- **Approach**: Monte Carlo policy gradient with full episode returns
-- **Strengths**: Simple and straightforward, no value function needed
-- **Use Case**: Educational purposes, baseline comparisons
+**Total Reward:** R_total = R_cell + R_progress + R_movement + R_terminal
 
-### 4. A2C - Advantage Actor-Critic (Actor-Critic)
-- **Type**: Actor-Critic
-- **Approach**: Combines policy (actor) and value function (critic)
-- **Strengths**: Reduces variance, fast training
-- **Use Case**: When you need both policy and value estimates
+| **Component**       | **Condition**                         | **Reward Range** |
+| ------------------------- | ------------------------------------------- | ---------------------- |
+| **Good Philosophy** | help_needy, share_knowledge, etc.           | +12 to +30             |
+| **Bad Philosophy**  | violence, harm_other, etc.                  | \-50 to -8             |
+| **Progress**        | Moving toward goal                          | +0.5 to +2.0           |
+| **Proximity**       | Within 3 cells of goal                      | +2.0 to +8.0           |
+| **Wall/Stuck**      | Invalid moves, oscillation                  | \-2.0 to -4.0          |
+| **Goal Reached**    | Ubuntu Mastery (score≥60 + diversity≥70%) | +400                   |
+| **Goal Reached**    | Partial success                             | +200 to +250           |
+| **Violence Limit**  | 5+ bad actions                              | \-200                  |
 
-## 🧪 Training Tips
+### **Ubuntu States**
 
-1. **Start with `train_all.py`**: Train all algorithms at once for fair comparison
-2. **Monitor training**: Check episode rewards increasing over time
-3. **Use `compare_models.py`**: Evaluate all models objectively
-4. **Hyperparameter Tuning**:
-   - Adjust learning rates in training scripts
-   - Modify `config.py` for environment difficulty
-   - Increase `total_timesteps` for better convergence
+The agent progresses through 4 moral development states:
 
-## 📈 Performance Metrics
+1. **LEARNING** (White robot): Initial exploration phase
+2. **UBUNTU_LEARNER** (Green robot): Score ≥30, showing positive growth
+3. **UBUNTU_MASTER** (Gold robot with crown): Score ≥60 + reached goal + 70% diversity
+4. **ANTI_UBUNTU** (Red robot): 5+ bad actions, fallen to negative path
 
-Monitor during training:
-- Episode reward (should increase over time)
-- Episode length (should reach MAX_EPISODE_STEPS)
-- Community score (should remain high)
-- Action distribution (should balance movement and interaction)
+### **Philosophy Types & Rewards**
 
-Typical successful training:
-- Initial reward: -346
-- Final reward: +230+
-- Community score: 0.85+
-- Episode completion: 200 steps
+**Good Philosophies:**
 
-### Algorithm Comparison Metrics
-Use `compare_models.py` to evaluate:
-- **Mean Reward**: Average reward over evaluation episodes
-- **Standard Deviation**: Consistency of performance
-- **Community Score**: How well agent maintains community welfare
-- **Episode Length**: Number of steps before termination
+- help_needy: +30 (15 × 2 multiplier)
+- share_knowledge: +24
+- show_compassion: +20
+- build_community: +16
+- forgive: +12
 
-## 🤝 Contributing
+**Bad Philosophies:**
 
-Feel free to:
-- Add new entity types
-- Implement new RL algorithms
-- Enhance visualization features
-- Optimize hyperparameters
-- Improve documentation
+- violence: -50
+- harm_other: -15
+- selfish_act: -12
+- hoard_resources: -10
+- show_greed: -8
 
-## 📝 License
+## **📊 Performance Benchmarks**
+
+### **Top Performing Configurations**
+
+**DQN:**
+
+- Best: Config 10 (LR=0.01, γ=0.99, ε_final=0.05) → **778.7** mean reward
+- Convergence: ~600-800 episodes (50-60% of training)
+- Key insight: Aggressive learning + high gamma + low exploration = optimal
+
+**A2C:**
+
+- Best: Config 1 (LR=0.0007, γ=0.99) → **697.7** mean reward
+- Convergence: Stable throughout training
+- Key insight: Moderate LR + high gamma + balanced actor-critic
+
+**PPO:**
+
+- Best: TBD (run python training/pg_training.py)
+- Expected: High sample efficiency with long rollouts
+
+### **Critical Findings**
+
+1. **Gamma is crucial**: All algorithms fail catastrophically with γ<0.95 (rewards drop to 250-450)
+2. **Diversity requirement**: Forces exploration beyond greedy exploitation
+3. **Sparse rewards**: Terminal +400 requires long-horizon credit assignment
+4. **Multi-objective**: Must balance navigation, morality, and diversity simultaneously
+
+## **🔧 Configuration**
+
+Edit Configurations/config.py:
+
+ENV_SIZE = 9.0 # 9×9 grid world
+
+MAX_EPISODE_STEPS = 500 # Maximum steps per episode
+
+Key environment parameters (in custom_env.py):
+
+- vision_radius = 2: 5×5 vision grid
+- history_length = 5: 5-step temporal memory
+- ubuntu_threshold = 60: Score needed for mastery
+- violence_limit = 5: Max bad actions before termination
+- required_diversity = 7: Must encounter 7/10 philosophy types
+
+## **📈 Hyperparameter Search Results**
+
+### **DQN Tested Configurations**
+
+Varies: Learning rate (0.0001-0.01), gamma (0.5-0.99), buffer size (50K-200K), batch size (32-128), final epsilon (0.05-0.2)
+
+### **A2C Tested Configurations**
+
+Varies: Learning rate (0.0001-0.1), gamma (0.1-0.99), n_steps (5), entropy coef (0.001-1.0), vf_coef (0.01-1.0)
+
+### **PPO Tested Configurations**
+
+Varies: Learning rate (0.0001-0.0005), gamma (0.95-0.99), n_steps (1024-4096), batch size (32-128), n_epochs (10-20), clip_range (0.2-0.3), entropy coef (0.001-0.05)
+
+## **🎨 Visualization Features**
+
+The pygame rendering includes:
+
+- **Sky gradient** with sun and clouds
+- **Ubuntu Temple** (golden shrine at goal)
+- **Philosophy symbols**: Rounded squares (good) vs triangles (bad)
+- **AI Robot agent** with state-based colors and animations
+- **Nature elements**: Trees, bushes, houses, flowers
+- **Path trails**: Visual history of agent movement
+- **Particle effects**: Philosophy interaction feedback
+- **Info panel**: Real-time Ubuntu score, state, and actions
+
+## **🤝 Contributing**
+
+Contributions welcome! Areas for improvement:
+
+- Additional RL algorithms (SAC, TD3, Rainbow DQN)
+- Curriculum learning for moral progression
+- Multi-agent Ubuntu scenarios
+- Transfer learning across grid sizes
+- Interpretability analysis of learned policies
+
+## **📝 License**
 
 This project is open source and available for educational and research purposes.
 
-## 🙏 Acknowledgments
+## **🙏 Acknowledgments**
 
 - Built with [Gymnasium](https://gymnasium.farama.org/)
 - RL algorithms from [Stable-Baselines3](https://stable-baselines3.readthedocs.io/)
-- Visualization with [Plotly](https://plotly.com/)
-- Inspired by Ubuntu philosophy: "I am because we are"
-
-## 🐛 Troubleshooting
-
-**No trained models found:**
-```bash
-python training/pg_training.py  # Train a model first
-```
-
-**Import errors:**
-```bash
-pip install -r requirements.txt  # Reinstall dependencies
-```
-
-**Visualization not opening:**
-- Check that plotly is installed
-- Try running in a different browser
-- Ensure no firewall is blocking local connections
-
-**Training too slow:**
-- Reduce `total_timesteps` for faster testing
-- Adjust `MAX_EPISODE_STEPS` in config.py
-- Use a more powerful machine or GPU
-
-## 📚 Further Reading
-
-- [Reinforcement Learning: An Introduction](http://incompleteideas.net/book/the-book.html)
-- [Stable-Baselines3 Documentation](https://stable-baselines3.readthedocs.io/)
-- [Gymnasium Documentation](https://gymnasium.farama.org/)
-- [Ubuntu Philosophy](https://en.wikipedia.org/wiki/Ubuntu_philosophy)
+- Inspired by Ubuntu philosophy: "Umuntu ngumuntu ngabantu" (A person is a person through other people)
+- Environment design emphasizes value alignment and multi-objective decision-making in AI systems.

@@ -13,27 +13,8 @@ import numpy as np
 import pandas as pd
 from datetime import datetime
 import matplotlib.pyplot as plt
-import seaborn as sns
-
-# Utility to ensure hashable types for results
-def safe_value(val):
-    """Convert numpy types to native Python types"""
-    if isinstance(val, np.ndarray):
-        if val.size == 1:
-            return val.item()
-        else:
-            return val.tolist()
-    elif isinstance(val, (np.integer, np.int32, np.int64)):
-        return int(val)
-    elif isinstance(val, (np.floating, np.float32, np.float64)):
-        return float(val)
-    elif isinstance(val, tuple):
-        return tuple(safe_value(x) for x in val)
-    elif isinstance(val, list):
-        return [safe_value(x) for x in val]
-    elif isinstance(val, dict):
-        return {safe_value(k): safe_value(v) for k, v in val.items()}
-    return val
+import warnings
+warnings.filterwarnings('ignore')
 
 
 class DetailedProgressCallback(BaseCallback):
@@ -45,50 +26,17 @@ class DetailedProgressCallback(BaseCallback):
         self.episode_rewards = []
         self.episode_lengths = []
         self.timesteps = []
-        self.policy_losses = []
-        self.value_losses = []
-        self.entropy_losses = []
-        self.clip_fractions = []
-        self._seen_episodes = set()  # Track which episodes we've already logged
         
     def _on_step(self):
-        # Track episode rewards - FIX: Properly handle ep_info_buffer
+        # Track episode rewards
         if len(self.model.ep_info_buffer) > 0:
             for info in self.model.ep_info_buffer:
-                # Create a unique identifier for this episode
-                # Use timestep + reward as identifier (not perfect but works)
                 if 'r' in info and 'l' in info:
-                    episode_id = (self.num_timesteps, float(info['r']))
-                    
-                    if episode_id not in self._seen_episodes:
-                        self._seen_episodes.add(episode_id)
-                        # Convert to native Python types immediately
-                        reward = float(info['r'])
-                        length = int(info['l'])
-                        self.episode_rewards.append(reward)
-                        self.episode_lengths.append(length)
+                    # Simple duplicate check
+                    if len(self.episode_rewards) == 0 or info['r'] != self.episode_rewards[-1]:
+                        self.episode_rewards.append(float(info['r']))
+                        self.episode_lengths.append(int(info['l']))
                         self.timesteps.append(int(self.num_timesteps))
-        
-        # Track training metrics periodically
-        if self.n_calls % 100 == 0:
-            try:
-                # Get latest losses if available
-                if hasattr(self.model, 'logger') and self.model.logger is not None:
-                    policy_loss = self.model.logger.name_to_value.get('train/policy_loss', None)
-                    value_loss = self.model.logger.name_to_value.get('train/value_loss', None)
-                    entropy_loss = self.model.logger.name_to_value.get('train/entropy_loss', None)
-                    clip_fraction = self.model.logger.name_to_value.get('train/clip_fraction', None)
-                    
-                    if policy_loss is not None:
-                        self.policy_losses.append(float(policy_loss))
-                    if value_loss is not None:
-                        self.value_losses.append(float(value_loss))
-                    if entropy_loss is not None:
-                        self.entropy_losses.append(float(entropy_loss))
-                    if clip_fraction is not None:
-                        self.clip_fractions.append(float(clip_fraction))
-            except:
-                pass
         
         if self.n_calls % self.check_freq == 0 and len(self.episode_rewards) > 0:
             avg_reward = float(np.mean(self.episode_rewards[-10:]))
@@ -102,37 +50,48 @@ def train_ppo_config(config_id, lr, gamma, n_steps, batch_size, n_epochs, clip_r
     """Train PPO with specific hyperparameters"""
     
     print(f"\n{'='*70}")
-    print(f"CONFIG {config_id}: LR={lr}, γ={gamma}, steps={n_steps}, batch={batch_size}, epochs={n_epochs}, clip={clip_range}")
+    print(f"CONFIG {config_id}: LR={lr}, γ={gamma}, steps={n_steps}, batch={batch_size}, epochs={n_epochs}")
+    print(f"  clip={clip_range}, entropy={ent_coef}")
     print('='*70)
     
-    env = UbuntuEnv(render_mode=None, vision_radius=2, enable_history=True)
-    
-    model = PPO(
-        "MlpPolicy",
-        env,
-        learning_rate=lr,
-        n_steps=n_steps,
-        batch_size=batch_size,
-        n_epochs=n_epochs,
-        gamma=gamma,
-        gae_lambda=0.95,
-        clip_range=clip_range,
-        ent_coef=ent_coef,
-        vf_coef=0.5,
-        max_grad_norm=0.5,
-        verbose=0
-    )
-    
-    callback = DetailedProgressCallback(check_freq=5000)
-    
     try:
+        # Validate hyperparameters
+        if batch_size > n_steps:
+            print(f"⚠️  WARNING: batch_size ({batch_size}) > n_steps ({n_steps}), adjusting batch_size to {n_steps}")
+            batch_size = n_steps
+        
+        print("Creating environment...")
+        env = UbuntuEnv(render_mode=None, vision_radius=2, enable_history=True)
+        print("✓ Environment created")
+        
+        print("Initializing PPO model...")
+        model = PPO(
+            "MlpPolicy",
+            env,
+            learning_rate=lr,
+            n_steps=n_steps,
+            batch_size=batch_size,
+            n_epochs=n_epochs,
+            gamma=gamma,
+            gae_lambda=0.95,
+            clip_range=clip_range,
+            ent_coef=ent_coef,
+            vf_coef=0.5,
+            max_grad_norm=0.5,
+            verbose=0
+        )
+        print("✓ Model initialized")
+        
+        callback = DetailedProgressCallback(check_freq=5000)
+        
+        print(f"Starting training for {total_timesteps:,} timesteps...")
         model.learn(
             total_timesteps=total_timesteps,
             callback=callback,
-            progress_bar=False
         )
+        print("✓ Training completed")
         
-        # Calculate mean reward from last 20 episodes
+        # Calculate mean reward
         if len(callback.episode_rewards) >= 20:
             mean_reward = float(np.mean(callback.episode_rewards[-20:]))
         elif len(callback.episode_rewards) > 0:
@@ -140,23 +99,28 @@ def train_ppo_config(config_id, lr, gamma, n_steps, batch_size, n_epochs, clip_r
         else:
             mean_reward = -999.0
         
+        print("Testing model...")
         # Test the model
         obs, _ = env.reset()
         test_reward = 0.0
+        test_steps = 0
         for _ in range(500):
             action, _ = model.predict(obs, deterministic=True)
             obs, reward, terminated, truncated, info = env.step(action)
             test_reward += float(reward)
+            test_steps += 1
             if terminated or truncated:
                 break
         
-        print(f"✅ Config {config_id} Complete | Train: {mean_reward:+.2f} | Test: {test_reward:+.2f}")
+        print(f"✅ Config {config_id} Complete | Train: {mean_reward:+.2f} | Test: {test_reward:+.2f} ({test_steps} steps)")
         
         # Save model
         model_path = f"{save_path}ubuntu_ppo_config{config_id}"
         model.save(model_path)
+        print(f"✓ Model saved to {model_path}.zip")
         
-        # Return results with safe values
+        env.close()
+        
         return {
             'config_id': int(config_id),
             'learning_rate': float(lr),
@@ -171,17 +135,15 @@ def train_ppo_config(config_id, lr, gamma, n_steps, batch_size, n_epochs, clip_r
             'episodes': int(len(callback.episode_rewards)),
             'model_path': str(model_path),
             'episode_rewards': [float(r) for r in callback.episode_rewards],
-            'timesteps': [int(t) for t in callback.timesteps],
-            'policy_losses': [float(l) for l in callback.policy_losses],
-            'value_losses': [float(l) for l in callback.value_losses],
-            'entropy_losses': [float(l) for l in callback.entropy_losses],
-            'clip_fractions': [float(c) for c in callback.clip_fractions]
+            'timesteps': [int(t) for t in callback.timesteps]
         }
         
     except Exception as e:
-        print(f"❌ Config {config_id} Failed: {e}")
+        print(f"❌ Config {config_id} Failed with error:")
+        print(f"   {type(e).__name__}: {str(e)}")
         import traceback
         traceback.print_exc()
+        
         return {
             'config_id': int(config_id),
             'learning_rate': float(lr),
@@ -196,11 +158,7 @@ def train_ppo_config(config_id, lr, gamma, n_steps, batch_size, n_epochs, clip_r
             'episodes': 0,
             'model_path': None,
             'episode_rewards': [],
-            'timesteps': [],
-            'policy_losses': [],
-            'value_losses': [],
-            'entropy_losses': [],
-            'clip_fractions': []
+            'timesteps': []
         }
 
 
@@ -209,14 +167,12 @@ def plot_cumulative_rewards(results, save_path="models/ppo/plots/"):
     
     os.makedirs(save_path, exist_ok=True)
     
-    # Filter out failed configs
     valid_results = [r for r in results if len(r['episode_rewards']) > 0]
     
     if len(valid_results) == 0:
-        print("No valid results to plot.")
+        print("⚠️  No valid results to plot.")
         return
     
-    # Create figure with subplots (2x5 grid for 10 configs)
     fig, axes = plt.subplots(2, 5, figsize=(20, 8))
     fig.suptitle('PPO Cumulative Rewards Over Episodes - All Configurations', fontsize=16, fontweight='bold')
     axes = axes.flatten()
@@ -237,13 +193,11 @@ def plot_cumulative_rewards(results, save_path="models/ppo/plots/"):
         ax.grid(True, alpha=0.3)
         ax.axhline(y=0, color='red', linestyle='--', alpha=0.5, linewidth=1)
         
-        # Add mean reward annotation
         ax.text(0.95, 0.05, f'Mean: {result["mean_reward"]:.1f}', 
                transform=ax.transAxes, ha='right', va='bottom',
                bbox=dict(boxstyle='round', facecolor='wheat', alpha=0.5),
                fontsize=8)
     
-    # Hide unused subplots
     for idx in range(len(valid_results), len(axes)):
         axes[idx].axis('off')
     
@@ -256,7 +210,6 @@ def plot_cumulative_rewards(results, save_path="models/ppo/plots/"):
 def main():
     """Run hyperparameter search with 10 different configurations"""
 
-    # Create save directories
     os.makedirs("models/ppo", exist_ok=True)
     os.makedirs("models/ppo/plots", exist_ok=True)
 
@@ -264,7 +217,8 @@ def main():
     print("PPO HYPERPARAMETER SEARCH - UBUNTU RL ENVIRONMENT")
     print("="*70)
 
-    # Define 10 different hyperparameter configurations
+    # Define 10 VALID hyperparameter configurations
+    # Key constraint: batch_size must be <= n_steps
     configs = [
         # Config 1: Baseline
         {'lr': 0.0003, 'gamma': 0.99, 'n_steps': 2048, 'batch_size': 64, 'n_epochs': 10, 'clip_range': 0.2, 'ent_coef': 0.01},
@@ -299,8 +253,11 @@ def main():
 
     results = []
 
-    # Train each configuration
     for i, config in enumerate(configs, 1):
+        print(f"\n\n{'#'*70}")
+        print(f"# STARTING CONFIG {i}/10")
+        print(f"{'#'*70}")
+        
         result = train_ppo_config(
             config_id=i,
             lr=config['lr'],
@@ -313,44 +270,37 @@ def main():
             total_timesteps=150000
         )
         results.append(result)
+        
+        print(f"✓ Config {i}/10 completed")
+
+    print("\n" + "="*70)
+    print("ALL CONFIGURATIONS COMPLETED")
+    print("="*70)
 
     # Create results DataFrame
-    df = pd.DataFrame([{k: v for k, v in r.items() if k not in ['episode_rewards', 'timesteps', 'policy_losses', 'value_losses', 'entropy_losses', 'clip_fractions']}
+    df = pd.DataFrame([{k: v for k, v in r.items() if k not in ['episode_rewards', 'timesteps']}
                        for r in results])
     df = df.sort_values('mean_reward', ascending=False)
 
-    # Save results to CSV
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     csv_path = f"models/ppo/ppo_results_{timestamp}.csv"
     df.to_csv(csv_path, index=False)
 
-    # Print results table
     print("\n" + "="*70)
     print("RESULTS SUMMARY (Sorted by Mean Reward)")
     print("="*70)
     print(df[['config_id', 'learning_rate', 'gamma', 'n_steps', 'batch_size',
               'n_epochs', 'clip_range', 'ent_coef', 'mean_reward']].to_string(index=False))
 
-    # Identify best configuration
-    best_config_id = df.iloc[0]['config_id']
+    best_config_id = int(df.iloc[0]['config_id'])
     best_result = [r for r in results if r['config_id'] == best_config_id][0]
 
     print("\n" + "="*70)
     print("BEST CONFIGURATION:")
     print("="*70)
-    print(f"Config ID: {best_result['config_id']}")
-    print(f"Learning Rate: {best_result['learning_rate']}")
-    print(f"Gamma: {best_result['gamma']}")
-    print(f"N Steps: {best_result['n_steps']}")
-    print(f"Batch Size: {best_result['batch_size']}")
-    print(f"N Epochs: {best_result['n_epochs']}")
-    print(f"Clip Range: {best_result['clip_range']}")
-    print(f"Entropy Coefficient: {best_result['ent_coef']}")
-    print(f"Mean Reward: {best_result['mean_reward']:.2f}")
-    print(f"Test Reward: {best_result['test_reward']:.2f}")
-    print(f"Model Path: {best_result['model_path']}.zip")
+    for key in ['config_id', 'learning_rate', 'gamma', 'n_steps', 'batch_size', 'n_epochs', 'clip_range', 'ent_coef', 'mean_reward', 'test_reward']:
+        print(f"{key}: {best_result[key]}")
 
-    # Copy best model to standard location
     if best_result['model_path']:
         import shutil
         best_model_path = "models/ppo/ubuntu_agent_ppo_best"
@@ -359,14 +309,24 @@ def main():
 
     print(f"\n📊 Full results saved to: {csv_path}")
 
-    # Generate plots
     print("\n" + "="*70)
     print("GENERATING ANALYSIS PLOTS...")
     print("="*70)
 
     plot_cumulative_rewards(results, save_path="models/ppo/plots/")
 
-    print("\n✅ All plots generated successfully!")
+    print("\n✅ All done!")
     print("="*70)
 
     return df, results
+
+
+if __name__ == "__main__":
+    try:
+        results_df, all_results = main()
+    except KeyboardInterrupt:
+        print("\n\n⚠️  Training interrupted by user")
+    except Exception as e:
+        print(f"\n\n❌ Fatal error: {e}")
+        import traceback
+        traceback.print_exc()
