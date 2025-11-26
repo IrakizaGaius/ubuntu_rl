@@ -18,13 +18,13 @@ ubuntu_rl/
 
 ├── Configurations/
 
-│ └── config.py # Environment configuration (ENV_SIZE=9.0, MAX_EPISODE_STEPS=500)
+│ └── config.py
 
 ├── environment/
 
 │ ├── \__init_\_.py
 
-│ └── custom_env.py # Custom Gymnasium environment with Ubuntu philosophy
+│ └── custom_env.py
 
 ├── models/
 
@@ -32,7 +32,7 @@ ubuntu_rl/
 
 │ │ ├── plots/ # Training analysis plots
 
-│ │ └── dqn_results_\*.csv # Hyperparameter search results
+│ │ └── dqn_results_\*.csv
 
 │ ├── ppo/ # PPO models and results
 
@@ -42,13 +42,13 @@ ubuntu_rl/
 
 ├── training/
 
-│ ├── dqn_training.py # DQN hyperparameter search (10 configs)
+│ ├── dqn_training.py
 
-│ ├── pg_training.py # PPO hyperparameter search (10 configs)
+│ ├── pg_training.py
 
-│ ├── actor_critic_training.py # A2C hyperparameter search (10 configs)
+│ ├── actor_critic_training.py
 
-│ └── reinforce_training.py # REINFORCE hyperparameter search (10 configs)
+│ └── reinforce_training.py
 
 ├── requirements.txt # Project dependencies
 
